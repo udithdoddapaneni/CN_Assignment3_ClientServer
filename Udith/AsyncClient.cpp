@@ -18,6 +18,9 @@ using namespace std;
 
 #define TIMEOUT 10
 
+#define SERVER_IP   "127.0.0.1"
+#define PORT        "8000"
+
 int STATE = START; 
 /*
     1: Hello wait / Ready / Ready Timer State
@@ -28,8 +31,8 @@ time_t START_TIME;
 time_t CURR_TIME;
 bool TIMER = false; // state to check if the timer is on
 bool TIMEOUT_FLAG = false;
-int32_t seq_no = 0;
-int32_t session_id = 0;
+int32_t seq_no = -1;
+int32_t session_id = random();
 
 void NoPayloadSend(int &sockfd, sockaddr *servaddr, socklen_t &socksize){
     char buffer[RECV_BUFFER_SIZE];
@@ -125,50 +128,59 @@ void PayloadSend(int &sockfd, sockaddr *servaddr, socklen_t &socksize){
 void Recieve(int &sockfd, sockaddr *servaddr, socklen_t &socksize){
     char buffer[HEADER_SIZE];
     recvfrom(sockfd, buffer, HEADER_SIZE, 0, servaddr, &socksize);
-    int16_t magic = MessageFactory::getMagic(buffer);
-    int8_t version = MessageFactory::getVersion(buffer);
-    int8_t command = MessageFactory::getCommand(buffer);
-    session_id = MessageFactory::getSessionId(buffer);
+    uint16_t magic = MessageFactory::getMagic(buffer);
+    uint8_t version = MessageFactory::getVersion(buffer);
+    uint8_t command = MessageFactory::getCommand(buffer);
+    uint32_t recieve_session_id = MessageFactory::getSessionId(buffer);
     uint32_t recieved_seq_no = MessageFactory::getSequenceNumber(buffer);
+    if (magic != MAGIC || version != VERSION){
+        return;
+    }
+    if (STATE == WAIT && command == HELLO){
+        session_id = recieve_session_id;
+        seq_no = 0;
+        STATE = READY;
+        TIMER = false;
+    }
+    else if (STATE == READY_TIMER && command == ALIVE && session_id == recieve_session_id){
+        STATE = READY;
+        TIMER = false;
+    }
+    else if (command == GOODBYE && session_id == recieve_session_id){
+        STATE = CLOSED;
+    }
+    else if ((STATE == READY || STATE == CLOSING) && command == ALIVE && session_id == recieve_session_id){
+        // do nothing
+    }
+    if (recieve_session_id != session_id){
+        return;
+    }
     switch (command)
     {
     case HELLO:
-        printf("%s %08x %d %s\n", "recieved:", session_id, recieved_seq_no, "HELLO");
+        printf("%s %08x %d %s\n", "recieved:", recieve_session_id, recieved_seq_no, "HELLO");
         break;
     case ALIVE:
-        printf("%s %08x %d %s\n", "recieved:", session_id, recieved_seq_no, "ALIVE");
+        printf("%s %08x %d %s\n", "recieved:", recieve_session_id, recieved_seq_no, "ALIVE");
         break;
     case GOODBYE:
-        printf("%s %08x %d %s\n", "recieved:", session_id, recieved_seq_no, "GOODBYE");
+        printf("%s %08x %d %s\n", "recieved:", recieve_session_id, recieved_seq_no, "GOODBYE");
         break;
     default:
         printf("%s %s\n", "recieved:", "?");
         break;
     }
     fflush(stdout);
-    if (STATE == WAIT && command == HELLO){
-        seq_no = 0;
-        STATE = READY;
-        TIMER = false;
-    }
-    else if (STATE == READY_TIMER && command == ALIVE){
-        STATE = READY;
-        TIMER = false;
-    }
-    else if (command == GOODBYE){
-        STATE = CLOSED;
-    }
-    else if ((STATE == READY || STATE == CLOSING) && command == ALIVE){
-        // do nothing
-    }
 }
 
-int main(){
+int main(int arg, char *argv[]){
     addrinfo hints, *res;
     memset(&hints, 0, sizeof(hints));
     hints.ai_socktype = SOCK_DGRAM;
     hints.ai_family = AF_INET;
-    getaddrinfo("127.0.0.1", "8000", &hints, &res);
+    char* serverIP = argv[1];
+    char* serverPort = argv[2];
+    getaddrinfo(serverIP, serverPort, &hints, &res);
     int sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
     sockaddr_in servaddr;
     socklen_t socksize = sizeof(servaddr);
@@ -197,9 +209,13 @@ int main(){
             Recieve(sockfd, (sockaddr *) &servaddr, socksize);
         }
         if (TIMER){
+            // cerr << "yo\n" << STATE << "\n";
             // timout check is active
             time(&CURR_TIME);
-            if (CURR_TIME - START_TIME > TIMEOUT) TIMEOUT_FLAG = true;
+            if (CURR_TIME - START_TIME > TIMEOUT){
+                TIMEOUT_FLAG = true;
+                cout << (CURR_TIME-START_TIME);
+            }
         }
         if (TIMEOUT_FLAG && (STATE == WAIT || STATE == READY_TIMER || STATE == CLOSING)){
             STATE = (STATE == CLOSING) ? CLOSED : CLOSING;

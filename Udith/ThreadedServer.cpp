@@ -282,14 +282,14 @@ void Response(sendargs &args){
     }
 }
 
-int main(){
+int main(int argc, char* argv[]){
     pthread_mutex_init(&lock, NULL);
     struct addrinfo hints, *servinfo;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_DGRAM;
     hints.ai_flags = AI_PASSIVE;
-    if (getaddrinfo(NULL, "8000", &hints, &servinfo) != 0){
+    if (getaddrinfo(NULL, argv[1], &hints, &servinfo) != 0){
         perror("not getting address info\n");
         exit(-1);
     }
